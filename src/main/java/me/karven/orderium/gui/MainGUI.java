@@ -52,6 +52,12 @@ public class MainGUI extends PaginatedGUI<Order> {
                 player.sendRichMessage(config.deliverSelf);
                 return;
             }
+            if (!order.isActive()) {
+                final MainGUI mainGUI = new MainGUI(player, sortIndex, search);
+                final InventoryGUI skippedPage = mainGUI.skipPages(context.pageIndex());
+                skippedPage.open(player);
+                return;
+            }
             final InventoryGUI deliverGUI = new DeliverGUI(order).getGUI();
             deliverGUI.open(player);
         };

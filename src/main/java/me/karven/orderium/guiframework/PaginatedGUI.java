@@ -51,13 +51,14 @@ public abstract class PaginatedGUI<T> {
 
     public @NotNull InventoryGUI getNextPage() {
         final InventoryGUI nextPage = new InventoryGUI(this.rows, this.title, true);
+        final int pageIndex = builtGUIs.size();
         int index = 0;
         while (itemIterator.hasNext() && index < slots.size()) {
             final T object = itemIterator.next();
             final ItemStack item = convertFunction.apply(object);
             final InventoryItem inventoryItem = new InventoryItem(
                     item,
-                    inventoryClickEvent -> clickAction.accept(new ItemClickContext<>(object, inventoryClickEvent))
+                    inventoryClickEvent -> clickAction.accept(new ItemClickContext<>(object, inventoryClickEvent, pageIndex))
             );
             nextPage.addItem(inventoryItem, slots.get(index++));
         }
