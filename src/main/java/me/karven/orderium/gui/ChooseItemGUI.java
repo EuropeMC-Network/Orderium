@@ -1,6 +1,7 @@
 package me.karven.orderium.gui;
 
 import io.papermc.paper.dialog.Dialog;
+import me.karven.orderium.config.util.component.SearchGUITypeConfig;
 import me.karven.orderium.guiframework.InventoryGUI;
 import me.karven.orderium.guiframework.InventoryItem;
 import me.karven.orderium.obj.SortType;
@@ -8,10 +9,7 @@ import me.karven.orderium.obj.orderitem.BlacklistedItem;
 import me.karven.orderium.obj.orderitem.EnchantableItem;
 import me.karven.orderium.obj.orderitem.OrderItem;
 import me.karven.orderium.storage.Storage;
-import me.karven.orderium.utils.AlgoUtils;
-import me.karven.orderium.utils.ConvertUtils;
-import me.karven.orderium.utils.PDCUtils;
-import me.karven.orderium.utils.PlayerUtils;
+import me.karven.orderium.utils.*;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
@@ -20,9 +18,10 @@ import org.bukkit.inventory.ItemStack;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
+import java.util.function.Consumer;
 
 import static me.karven.orderium.Orderium.plugin;
-import static me.karven.orderium.config.Config.config;
+import static me.karven.orderium.config.Config.config; // Config is not allowed to reload during the construction of choose item GUI, so tears cannot happen
 
 public class ChooseItemGUI {
     private static final List<InventoryGUI> AZ = new ArrayList<>();
@@ -83,10 +82,21 @@ public class ChooseItemGUI {
 
         gui.addItem(
                 config.chooseItemGUIConfig.searchButton.item(e -> {
-                    if (!(e.getWhoClicked() instanceof Player p)) return;
+                    if (!(e.getWhoClicked() instanceof final Player player)) return;
+
+                    final Consumer<String> searchAction = query ->
+                            DispatchUtil.entity(
+                                    player,
+                                    () -> PlayerUtils.openGUI(player, ChooseItemGUI.getGUI(sortIdx, query), true)
+                            );
+
+                    if (config.chooseItemGUIConfig.searchGUITypeConfig.searchGUIType == SearchGUITypeConfig.SearchGUIType.DIALOG) {
+                        player.showDialog(SearchDialog.getDialog(searchAction));
+                        return;
+                    }
+
                     SignGUI.newSession(
-                            p,
-                            (s) -> PlayerUtils.openGUI(p, ChooseItemGUI.getGUI(sortIdx, s), true),
+                            player, searchAction,
                             config.signGUIConfig.signLines,
                             config.signGUIConfig.signType(),
                             config.signGUIConfig.queryLine
