@@ -13,19 +13,29 @@ import org.bukkit.block.banner.Pattern;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.ItemType;
 import org.intellij.lang.annotations.Subst;
-import org.jetbrains.annotations.NotNull;
-import org.jspecify.annotations.NonNull;
+import org.jspecify.annotations.NullMarked;
+import org.jspecify.annotations.Nullable;
 
 import java.util.*;
+import java.util.function.Consumer;
 
 import static me.karven.orderium.utils.Values.ERROR_TRACKER;
 
-// Serialize an nbt data to a Map, List, etc. to store it in config file
+// Serialize an NBT data to a Map, List, etc. to store it in config file
 @SuppressWarnings("UnstableApiUsage")
+@NullMarked
 public abstract class NBTSerializer<T> {
+    private static final Consumer<String> EMPTY_STRING_CONSUMER = (_) -> {};
+
     public static final NBTSerializer<ItemStack> ITEM_STACK = new NBTSerializer<>() {
+
         @Override
-        @NotNull Object serialize(final Object itemObject) {
+        ItemStack deserialize(final Object value) {
+            return deserialize(value, EMPTY_STRING_CONSUMER);
+        }
+
+        @Override
+        Object serialize(final Object itemObject) {
             final ItemStack item = cast(itemObject);
             if (item.isEmpty()) {
                 return Map.of("id", "minecraft:air");
@@ -67,7 +77,7 @@ public abstract class NBTSerializer<T> {
         }
 
         @Override
-        @NonNull ItemStack deserialize(@NotNull Object value) {
+        ItemStack deserialize(final Object value, final Consumer<@Nullable String> errorMessageConsumer) {
             if (!(value instanceof Map<?, ?> data)) {
                 throw new IllegalArgumentException("object to deserialize is not a Map, it is " + value.getClass());
             }
@@ -81,18 +91,21 @@ public abstract class NBTSerializer<T> {
                 return item;
             }
             if (!(componentsObject instanceof Map<?, ?> components)) {
-                throw new IllegalStateException("components is not a Map, it is " + componentsObject.getClass());
+                throw new IllegalArgumentException("components is not a Map, it is " + componentsObject.getClass());
             }
+
+            final StringBuilder errorMessage = new StringBuilder();
+
             for (final Map.Entry<?, ?> entry : components.entrySet()) {
                 final String componentKey = (String) entry.getKey();
 
                 final String[] keyComponents = componentKey.split(":");
-                if (keyComponents.length != 2) {
-                    Log.error("Invalid component key: " + componentKey, new IllegalStateException());
-                    continue;
-                }
-                final DataComponentType componentType = Registry.DATA_COMPONENT_TYPE.get(new NamespacedKey(keyComponents[0], keyComponents[1]));
-
+                final NamespacedKey key = switch (keyComponents.length) {
+                    case 1 -> NamespacedKey.minecraft(keyComponents[0]);
+                    case 2 -> new NamespacedKey(keyComponents[0], keyComponents[1]);
+                    default -> throw new IllegalArgumentException("Invalid component: " + componentKey);
+                };
+                final DataComponentType componentType = Registry.DATA_COMPONENT_TYPE.get(key);
                 final Object componentValue = entry.getValue();
 
 
@@ -110,16 +123,23 @@ public abstract class NBTSerializer<T> {
                     continue;
                 }
                 if (!(componentType instanceof DataComponentType.Valued<?> valuedComponentType)) {
-                    Log.error("Component type is neither valued nor non-valued. This is a bug.", new IllegalStateException());
+                    Log.error("Component type is neither valued nor non-valued.", new IllegalStateException());
                     continue;
                 }
                 final NBTSerializer<?> serializer = componentSerializers.get(componentKey);
                 if (serializer == null) {
-                    Log.error("No serializer for component " + componentKey, new IllegalStateException());
+                    errorMessage
+                            .append("- Component \"")
+                            .append(componentKey)
+                            .append("\" is not supported, it will not be included in the item.\n");
                     continue;
                 }
                 final Object deserializedComponent = serializer.deserialize(componentValue);
                 item.setData(NBTSerializer.cast(valuedComponentType), NBTSerializer.cast(valuedComponentType, deserializedComponent));
+            }
+
+            if (!errorMessage.isEmpty()) {
+                errorMessageConsumer.accept(errorMessage.toString());
             }
             return item;
         }
@@ -139,7 +159,7 @@ public abstract class NBTSerializer<T> {
     public static final NBTSerializer<BannerPatternLayers> BANNER_PATTERNS = new NBTSerializer<>() {
 
         @Override
-        @NotNull Object serialize(final Object value) {
+        Object serialize(final Object value) {
             final BannerPatternLayers layers = cast(value);
             final List<Map<String, Object>> result = new ArrayList<>();
             for (final Pattern pattern : layers.patterns()) {
@@ -150,7 +170,7 @@ public abstract class NBTSerializer<T> {
         }
 
         @Override
-        @NonNull BannerPatternLayers deserialize(final @NotNull Object value) {
+        BannerPatternLayers deserialize(final Object value) {
             if (!(value instanceof List<?> list)) {
                 throw new IllegalArgumentException("object to deserialize is not a List, it is " + value.getClass());
             }
@@ -171,12 +191,12 @@ public abstract class NBTSerializer<T> {
     public static final NBTSerializer<DyeColor> BASE_COLOR = new NBTSerializer<>() {
 
         @Override
-        @NotNull Object serialize(final Object color) {
+        Object serialize(final Object color) {
             return color.toString().toLowerCase();
         }
 
         @Override
-        @NonNull DyeColor deserialize(final @NotNull Object value) {
+        DyeColor deserialize(final Object value) {
             return DyeColor.valueOf(value.toString().toUpperCase());
         }
     };
@@ -184,7 +204,7 @@ public abstract class NBTSerializer<T> {
 
     public static final NBTSerializer<BundleContents> BUNDLE_CONTENTS = new NBTSerializer<>() {
         @Override
-        @NotNull Object serialize(final Object value) {
+        Object serialize(final Object value) {
             final BundleContents bundleContents = cast(value);
             final List<Map<String, Object>> serializedContents = new ArrayList<>();
             for (final ItemStack item : bundleContents.contents()) {
@@ -195,7 +215,7 @@ public abstract class NBTSerializer<T> {
         }
 
         @Override
-        @NonNull BundleContents deserialize(final @NotNull Object value) {
+        BundleContents deserialize(final Object value) {
             if (!(value instanceof List<?> data)) {
                 throw new IllegalArgumentException("object to deserialize is not a List, it is " + value.getClass());
             }
@@ -209,7 +229,7 @@ public abstract class NBTSerializer<T> {
 
     public static final NBTSerializer<ChargedProjectiles> CHARGED_PROJECTILES = new NBTSerializer<>() {
         @Override
-        @NotNull Object serialize(final Object value) {
+        Object serialize(final Object value) {
             final ChargedProjectiles chargedProjectiles = cast(value);
             final List<Object> serializedProjectiles = new ArrayList<>();
             for (final ItemStack item : chargedProjectiles.projectiles()) {
@@ -219,7 +239,7 @@ public abstract class NBTSerializer<T> {
         }
 
         @Override
-        @NonNull ChargedProjectiles deserialize(final @NotNull Object value) {
+        ChargedProjectiles deserialize(final Object value) {
             if (!(value instanceof List<?> data)) {
                 throw new IllegalArgumentException("object to deserialize is not a List, it is " + value.getClass());
             }
@@ -233,7 +253,7 @@ public abstract class NBTSerializer<T> {
 
     public static final NBTSerializer<ResolvableProfile> PROFILE = new NBTSerializer<>() {
         @Override
-        @NotNull Object serialize(final Object value) {
+        Object serialize(final Object value) {
             final ResolvableProfile profile = cast(value);
             final Map<String, Object> serializedProfile = new LinkedHashMap<>(3);
             if (profile.name() != null) serializedProfile.put("name", profile.name());
@@ -253,7 +273,7 @@ public abstract class NBTSerializer<T> {
         }
 
         @Override
-        @NonNull ResolvableProfile deserialize(final @NotNull Object value) {
+        ResolvableProfile deserialize(final Object value) {
             if (!(value instanceof Map<?, ?> data)) {
                 throw new IllegalArgumentException("object to deserialize is not a Map, it is " + value.getClass());
             }
@@ -286,7 +306,7 @@ public abstract class NBTSerializer<T> {
 
     public static final NBTSerializer<TooltipDisplay> TOOLTIP_DISPLAY = new NBTSerializer<>() {
         @Override
-        @NotNull Object serialize(final Object value) {
+        Object serialize(final Object value) {
             final TooltipDisplay tooltipDisplay = cast(value);
             return Map.of(
                     "hide_tooltip", tooltipDisplay.hideTooltip(),
@@ -295,7 +315,7 @@ public abstract class NBTSerializer<T> {
         }
 
         @Override
-        @NonNull TooltipDisplay deserialize(final @NotNull Object value) {
+        TooltipDisplay deserialize(final Object value) {
             if (!(value instanceof Map<?, ?> data)) {
                 throw new IllegalArgumentException("object to deserialize is not a Map, it is " + value.getClass());
             }
@@ -324,12 +344,12 @@ public abstract class NBTSerializer<T> {
 
     public static final NBTSerializer<Boolean> BOOLEAN = new NBTSerializer<>() {
         @Override
-        @NotNull Object serialize(final Object value) {
+        Object serialize(final Object value) {
             return value;
         }
 
         @Override
-        @NonNull Boolean deserialize(final @NotNull Object value) {
+        Boolean deserialize(final Object value) {
             if (value instanceof Boolean bool) return bool;
             if (value instanceof String string) return Boolean.valueOf(string);
             throw new IllegalArgumentException("object to deserialize is not a Boolean, it is " + value.getClass());
@@ -338,12 +358,12 @@ public abstract class NBTSerializer<T> {
 
     public static final NBTSerializer<Key> KEY = new NBTSerializer<>() {
         @Override
-        @NotNull Object serialize(final Object value) {
+        Object serialize(final Object value) {
             return cast(value).asString();
         }
 
         @Override
-        @NonNull Key deserialize(final @NotNull Object value) {
+        Key deserialize(final Object value) {
             if (!(value instanceof String string)) {
                 throw new IllegalArgumentException("object to deserialize is not a String, it is " + value.getClass());
             }
@@ -356,13 +376,13 @@ public abstract class NBTSerializer<T> {
 
     public static final NBTSerializer<Component> TEXT_COMPONENT = new NBTSerializer<>() {
         @Override
-        @NotNull Object serialize(final Object value) {
+        Object serialize(final Object value) {
             final Component component = cast(value);
             return Values.minimessage.serialize(component);
         }
 
         @Override
-        @NonNull Component deserialize(final @NotNull Object value) {
+        Component deserialize(final Object value) {
             if (!(value instanceof String text)) {
                 throw new IllegalArgumentException("object to deserialize is not a String, it is " + value.getClass());
             }
@@ -373,24 +393,24 @@ public abstract class NBTSerializer<T> {
 
     public static final NBTSerializer<Object> OBJECT = new NBTSerializer<>() {
         @Override
-        @NotNull Object serialize(final Object value) {
+        Object serialize(final Object value) {
             return value;
         }
 
         @Override
-        @NonNull Object deserialize(final @NotNull Object value) {
+        Object deserialize(final Object value) {
             return value;
         }
     };
 
     public static final NBTSerializer<ItemLore> LORE = new NBTSerializer<>() {
         @Override
-        @NotNull Object serialize(final Object value) {
+        Object serialize(final Object value) {
             return cast(value).lines().stream().map(Values.minimessage::serialize).toList();
         }
 
         @Override
-        @NonNull ItemLore deserialize(final @NotNull Object value) {
+        ItemLore deserialize(final Object value) {
             if (!(value instanceof List<?> list)) {
                 throw new IllegalArgumentException("object to deserialize is not a List, it is " + value.getClass());
             }
@@ -422,11 +442,15 @@ public abstract class NBTSerializer<T> {
         componentSerializers.put("minecraft:lore", LORE);
     }
 
-    abstract @NotNull Object serialize(final Object value);
+    abstract Object serialize(final Object value);
 
-    abstract @NotNull T deserialize(final @NotNull Object value);
+    T deserialize(final Object value, final Consumer<@Nullable String> errorMessageConsumer) {
+        throw new IllegalStateException("This NBT serializer does not provide error message.");
+    }
 
-    protected T cast(final @NotNull Object value) {
+    abstract T deserialize(final Object value);
+
+    protected T cast(final Object value) {
         try {
             final @SuppressWarnings("unchecked") T typedValue = (T) value;
             return typedValue;
@@ -437,12 +461,16 @@ public abstract class NBTSerializer<T> {
         }
     }
 
-    public static Object serializeItemStack(final @NotNull ItemStack itemStack) {
+    public static Object serializeItemStack(final ItemStack itemStack) {
         return ITEM_STACK.serialize(itemStack);
     }
 
-    public static ItemStack deserializeItemStack(final @NotNull ConfigSection section) {
-        return ITEM_STACK.deserialize(resolveSection(section));
+    public static ItemStack deserializeItemStack(final ConfigSection section) {
+        final String path = section.getPath();
+        return ITEM_STACK.deserialize(
+                resolveSection(section),
+                error -> Log.warn("Error when deserializing item at path " + path + ":\n" + error)
+        );
     }
 
     private static Map<String, Object> resolveSection(final ConfigSection section) {
