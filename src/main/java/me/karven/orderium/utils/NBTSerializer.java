@@ -6,6 +6,7 @@ import io.papermc.paper.datacomponent.DataComponentType;
 import io.papermc.paper.datacomponent.item.*;
 import net.kyori.adventure.key.Key;
 import net.kyori.adventure.text.Component;
+import org.bukkit.Color;
 import org.bukkit.DyeColor;
 import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
@@ -251,6 +252,59 @@ public abstract class NBTSerializer<T> {
         }
     };
 
+    public static final NBTSerializer<CustomModelData> CUSTOM_MODEL_DATA = new NBTSerializer<>() {
+        @Override
+        Object serialize(final Object value) {
+            final CustomModelData customModelData = cast(value);
+            return Map.of(
+                    "floats", customModelData.floats(),
+                    "flags", customModelData.flags(),
+                    "strings", customModelData.strings(),
+                    "colors", customModelData.colors().stream().map(color -> "#" + Integer.toHexString(color.asRGB())).toList()
+            );
+        }
+
+        @Override
+        CustomModelData deserialize(final Object value) {
+            if (!(value instanceof Map<?, ?> data)) {
+                throw new IllegalArgumentException("object to deserialize is not a Map, it is " + value.getClass());
+            }
+            final List<Float> floats = NBTSerializer.typedList(data.get("floats"), Float.class);
+            final List<Boolean> flags = NBTSerializer.typedList(data.get("flags"), Boolean.class);
+            final List<String> strings = NBTSerializer.typedList(data.get("strings"), String.class);
+
+            // We accept hex, hex prefixed with "#" and map with red, green, blue keys
+            final Object colorsObject = data.get("colors");
+
+            if (!(colorsObject instanceof List<?> list)) {
+                throw new IllegalArgumentException("colors are not a List, they are " + colorsObject.getClass());
+            }
+
+            final List<Color> colors = list.stream().map(colorObject -> {
+                if (colorObject instanceof String hexString) {
+                    final int decimal = hexString.charAt(0) == '#' ?
+                            Integer.parseInt(hexString.substring(1), 16) :
+                            Integer.parseInt(hexString, 16);
+                    return Color.fromRGB(decimal);
+                }
+                if (colorObject instanceof Map<?, ?> rgbMap) {
+                    final float red = (float) rgbMap.get("red");
+                    final float green = (float) rgbMap.get("green");
+                    final float blue = (float) rgbMap.get("blue");
+                    return Color.fromRGB(
+                            (int) (red * 255),
+                            (int) (green * 255),
+                            (int) (blue * 255)
+                    );
+                }
+
+                throw new IllegalArgumentException("Invalid color, expected a hex string or rgb map, found " + colorObject.getClass());
+            }).toList();
+
+            return CustomModelData.customModelData().addFloats(floats).addFlags(flags).addStrings(strings).addColors(colors).build();
+        }
+    };
+
     public static final NBTSerializer<ResolvableProfile> PROFILE = new NBTSerializer<>() {
         @Override
         Object serialize(final Object value) {
@@ -432,6 +486,7 @@ public abstract class NBTSerializer<T> {
         componentSerializers.put("minecraft:base_color", BASE_COLOR);
         componentSerializers.put("minecraft:bundle_contents", BUNDLE_CONTENTS);
         componentSerializers.put("minecraft:charged_projectiles", CHARGED_PROJECTILES);
+        componentSerializers.put("minecraft:custom_model_data", CUSTOM_MODEL_DATA);
         componentSerializers.put("minecraft:custom_name", TEXT_COMPONENT);
         componentSerializers.put("minecraft:enchantment_glint_override", BOOLEAN);
         componentSerializers.put("minecraft:item_model", KEY);
@@ -484,5 +539,12 @@ public abstract class NBTSerializer<T> {
             }
         }
         return map;
+    }
+
+    private static <T> List<T> typedList(final Object listObject, final Class<T> clazz) {
+        if (!(listObject instanceof List<?> list)) {
+            throw new IllegalArgumentException("Expected a List, found " + listObject.getClass());
+        }
+        return list.stream().map(clazz::cast).toList();
     }
 }
