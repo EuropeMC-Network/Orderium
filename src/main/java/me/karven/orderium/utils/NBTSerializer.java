@@ -19,6 +19,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.*;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import static me.karven.orderium.utils.Values.ERROR_TRACKER;
 
@@ -269,9 +270,9 @@ public abstract class NBTSerializer<T> {
             if (!(value instanceof Map<?, ?> data)) {
                 throw new IllegalArgumentException("object to deserialize is not a Map, it is " + value.getClass());
             }
-            final List<Float> floats = NBTSerializer.typedList(data.get("floats"), Float.class);
-            final List<Boolean> flags = NBTSerializer.typedList(data.get("flags"), Boolean.class);
-            final List<String> strings = NBTSerializer.typedList(data.get("strings"), String.class);
+            final List<Float> floats = NBTSerializer.typedList(data.get("floats"), object -> ((Number) object).floatValue());
+            final List<Boolean> flags = NBTSerializer.typedList(data.get("flags"), BOOLEAN::deserialize);
+            final List<String> strings = NBTSerializer.typedList(data.get("strings"), object -> (String) object);
 
             // We accept hex, hex prefixed with "#" and map with red, green, blue keys
             final Object colorsObject = data.get("colors");
@@ -280,28 +281,21 @@ public abstract class NBTSerializer<T> {
                 throw new IllegalArgumentException("colors are not a List, they are " + colorsObject.getClass());
             }
 
-            final List<Color> colors = list.stream().map(colorObject -> {
-                if (colorObject instanceof String hexString) {
-                    final int decimal = hexString.charAt(0) == '#' ?
-                            Integer.parseInt(hexString.substring(1), 16) :
-                            Integer.parseInt(hexString, 16);
-                    return Color.fromRGB(decimal);
-                }
-                if (colorObject instanceof Map<?, ?> rgbMap) {
-                    final float red = (float) rgbMap.get("red");
-                    final float green = (float) rgbMap.get("green");
-                    final float blue = (float) rgbMap.get("blue");
-                    return Color.fromRGB(
-                            (int) (red * 255),
-                            (int) (green * 255),
-                            (int) (blue * 255)
-                    );
-                }
-
-                throw new IllegalArgumentException("Invalid color, expected a hex string or rgb map, found " + colorObject.getClass());
-            }).toList();
+            final List<Color> colors = list.stream().map(COLOR::deserialize).toList();
 
             return CustomModelData.customModelData().addFloats(floats).addFlags(flags).addStrings(strings).addColors(colors).build();
+        }
+    };
+
+    public static final NBTSerializer<DyedItemColor> DYED_COLOR = new NBTSerializer<>() {
+        @Override
+        Object serialize(final Object value) {
+            return COLOR.serialize(value);
+        }
+
+        @Override
+        DyedItemColor deserialize(Object value) {
+            return DyedItemColor.dyedItemColor(COLOR.deserialize(value));
         }
     };
 
@@ -409,6 +403,44 @@ public abstract class NBTSerializer<T> {
             throw new IllegalArgumentException("object to deserialize is not a Boolean, it is " + value.getClass());
         }
     };
+    // We accept hex, hex prefixed with "#", map with red, green, blue keys and list of 3 floats
+    public static final NBTSerializer<Color> COLOR = new NBTSerializer<>() {
+        @Override
+        Object serialize(final Object value) {
+            return "#" + Integer.toHexString(((Color) value).asRGB());
+        }
+
+        @Override
+        Color deserialize(final Object value) {
+            switch (value) {
+                case List<?> list -> {
+                    final List<Float> rgbList = NBTSerializer.typedList(list, object -> ((Number) object).floatValue());
+                    if (rgbList.size() != 3) {
+                        throw new IllegalArgumentException("Color is a List with invalid size");
+                    }
+                    return Color.fromRGB(
+                            (int) (rgbList.get(0) * 255),
+                            (int) (rgbList.get(1) * 255),
+                            (int) (rgbList.get(2) * 255)
+                    );
+                }
+                case String hexString -> {
+                    final int decimal = hexString.charAt(0) == '#' ?
+                            Integer.parseInt(hexString.substring(1), 16) :
+                            Integer.parseInt(hexString, 16);
+                    return Color.fromRGB(decimal);
+                }
+                case Map<?, ?> rgbMap -> {
+                    return Color.fromRGB(
+                            ((Number) rgbMap.get("red")).intValue(),
+                            ((Number) rgbMap.get("green")).intValue(),
+                            ((Number) rgbMap.get("blue")).intValue()
+                    );
+                }
+                default -> throw new IllegalArgumentException("Object to deserialize is an invalid color. It is " + value.getClass());
+            }
+        }
+    };
 
     public static final NBTSerializer<Key> KEY = new NBTSerializer<>() {
         @Override
@@ -489,6 +521,7 @@ public abstract class NBTSerializer<T> {
         componentSerializers.put("minecraft:custom_model_data", CUSTOM_MODEL_DATA);
         componentSerializers.put("minecraft:custom_name", TEXT_COMPONENT);
         componentSerializers.put("minecraft:enchantment_glint_override", BOOLEAN);
+        componentSerializers.put("minecraft:dyed_color", DYED_COLOR);
         componentSerializers.put("minecraft:item_model", KEY);
         componentSerializers.put("minecraft:item_name", TEXT_COMPONENT);
         componentSerializers.put("minecraft:max_stack_size", OBJECT);
@@ -541,10 +574,11 @@ public abstract class NBTSerializer<T> {
         return map;
     }
 
-    private static <T> List<T> typedList(final Object listObject, final Class<T> clazz) {
+    private static <T> List<T> typedList(final @Nullable Object listObject, final Function<Object, T> castFunction) {
+        if (listObject == null) return List.of();
         if (!(listObject instanceof List<?> list)) {
             throw new IllegalArgumentException("Expected a List, found " + listObject.getClass());
         }
-        return list.stream().map(clazz::cast).toList();
+        return list.stream().map(castFunction).toList();
     }
 }
