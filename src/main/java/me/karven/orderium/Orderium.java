@@ -1,7 +1,5 @@
 package me.karven.orderium;
 
-import com.github.retrooper.packetevents.PacketEvents;
-import com.github.retrooper.packetevents.event.PacketListenerPriority;
 import dev.faststats.bukkit.BukkitContext;
 import me.karven.orderium.config.Config;
 import me.karven.orderium.data.DataCache;
@@ -106,7 +104,7 @@ public final class Orderium extends JavaPlugin {
     private void registerListeners() {
         Bukkit.getPluginManager().registerEvents(new GUIListener(), this);
         Bukkit.getPluginManager().registerEvents(new DisconnectListener(), this);
-        PacketEvents.getAPI().getEventManager().registerListener(new SignGUI(), PacketListenerPriority.NORMAL);
+        Bukkit.getPluginManager().registerEvents(new SignGUI(), this);
     }
 
     private void startCollectLimitResetLoop() {

@@ -1,10 +1,7 @@
 package me.karven.orderium.gui;
 
-import com.github.retrooper.packetevents.event.PacketListener;
-import com.github.retrooper.packetevents.event.PacketReceiveEvent;
-import com.github.retrooper.packetevents.protocol.packettype.PacketType;
-import com.github.retrooper.packetevents.util.Vector3i;
-import com.github.retrooper.packetevents.wrapper.play.client.WrapperPlayClientUpdateSign;
+import io.papermc.paper.event.packet.UncheckedSignChangeEvent;
+import io.papermc.paper.math.BlockPosition;
 import io.papermc.paper.math.Position;
 import me.karven.orderium.obj.SignInfo;
 import me.karven.orderium.utils.Log;
@@ -18,17 +15,17 @@ import org.bukkit.block.TileState;
 import org.bukkit.block.sign.Side;
 import org.bukkit.block.sign.SignSide;
 import org.bukkit.entity.Player;
-import org.jetbrains.annotations.NotNull;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
 
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 import static me.karven.orderium.Orderium.plugin;
-import static me.karven.orderium.utils.Values.ERROR_TRACKER;
 
 @SuppressWarnings("UnstableApiUsage")
-public class SignGUI implements PacketListener {
+public class SignGUI implements Listener {
     private static final ConcurrentHashMap<Player, SignInfo> sessionsList = new ConcurrentHashMap<>();
     private static MiniMessage mm;
 
@@ -70,33 +67,24 @@ public class SignGUI implements PacketListener {
         sessionsList.remove(player);
     }
 
-    @Override
-    public void onPacketReceive(@NotNull PacketReceiveEvent event) {
-        try {
+    @EventHandler
+    public void onSignChange(final UncheckedSignChangeEvent event) {
+        final Player player = event.getPlayer();
+        final SignInfo info = sessionsList.get(player);
+        if (info == null) return;
+        final Position pos = info.position();
+        final BlockPosition blockPos = Position.block(pos.blockX(), pos.blockY(), pos.blockZ());
+        if (!event.getEditedBlockPosition().equals(blockPos)) return;
 
-            if (event.getPacketType() != PacketType.Play.Client.UPDATE_SIGN) return;
-            final Player player = event.getPlayer();
-            final SignInfo info = sessionsList.get(player);
-            if (info == null) return;
-            final WrapperPlayClientUpdateSign wrapper = new WrapperPlayClientUpdateSign(event);
-            final Position pos = info.position();
-            final Vector3i blockPos = new Vector3i(pos.blockX(), pos.blockY(), pos.blockZ());
-            if (!wrapper.getBlockPosition().equals(blockPos)) return;
-            final String[] lines = wrapper.getTextLines();
-            completeSession(player, lines[info.line()]);
+        final String line = mm.serialize(event.lines().get(info.line()));
+        completeSession(player, line);
 
-            World world = player.getWorld();
-            Location loc = pos.toLocation(world);
+        World world = player.getWorld();
+        Location loc = pos.toLocation(world);
 
-            Bukkit.getRegionScheduler().run(plugin, loc, task -> {
-                player.sendBlockChange(loc, world.getBlockData(loc));
-                if (world.getBlockState(loc) instanceof TileState tile) player.sendBlockUpdate(loc, tile);
-            });
-
-            event.setCancelled(true);
-        } catch (Exception e) {
-            Log.error("Failed while handling packet", e);
-            ERROR_TRACKER.trackError(e);
-        }
+        Bukkit.getRegionScheduler().run(plugin, loc, task -> {
+            player.sendBlockChange(loc, world.getBlockData(loc));
+            if (world.getBlockState(loc) instanceof TileState tile) player.sendBlockUpdate(loc, tile);
+        });
     }
 }
